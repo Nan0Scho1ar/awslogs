@@ -1,7 +1,7 @@
 # awslogs
 Small tool for working with AWS logs
 
-Depends on `fzf`, `aws`, `jq`, and `bat`;
+Depends on [fzf](https://github.com/junegunn/fzf), [aws-cli](https://github.com/aws/aws-cli), [jq](https://github.com/stedolan/jq), and [bat](https://github.com/sharkdp/bat);
 
 1. Set up your awscli profiles as usual as this uses awscli to fetch logs.
 2. Add the script somewhere in you path and ensure it's executable.
