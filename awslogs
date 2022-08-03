@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Script for working with AWS logs
+
+max_log_streams=10
+max_log_events_per_stream=200
+
+output_format='["timestamp                                ", "message"],
+               ["-----------------------------------------", "-----------------------------------"],
+               (.events[] | [(.timestamp / 1000 | strftime("%Y-%m-%d %H:%M:%S UTC") + strflocaltime(" (%I:%M:%S%p %Z)")), .message]) | @tsv'
+
+# Ensure required dependencies are installed
+for program in fzf aws jq bat; do
+    if ! which $program >/dev/null 2>&1; then
+        echo "Error: This script requires '$program'. Please install it then try again."
+        exit 1
+    fi
+done
+
+
+fetch_logs() {
+    # Choose an aws profile to use
+    AWS_PROFILE=$(aws configure list-profiles | fzf)
+
+    # Choose a log group
+    log_group_name=$(aws logs describe-log-groups | sed -n 's/.*logGroupName": "\(.*\)"./\1/p' | fzf)
+
+    # Create output dir
+    outdir="/tmp/aws_logs/$AWS_PROFILE/$log_group_name"
+    mkdir -p $outdir
+    rm $outdir/*
+
+    # Fetch log streams in the chosen group.
+    echo "Fetching logs for $log_group_name..."
+    log_streams=$(
+        aws logs describe-log-streams \
+            --log-group-name "$log_group_name"  \
+            --order-by LastEventTime \
+            --descending \
+            --max-items $max_log_streams \
+        | sed -n 's/.*logStreamName": "\(.*\)",/\1/p'
+    )
+
+    # Fetch the logs from each of the log streams
+    # Then format json log files to be human readable.
+    for stream in $log_streams; do
+        aws logs get-log-events \
+        --log-group-name "$log_group_name" \
+        --log-stream-name "$stream" \
+        --limit $max_log_events_per_stream \
+        --output json \
+        | jq -r "$output_format" > $outdir/${stream//\//_}.txt
+    done
+
+    # Display prettified log files to user
+    bat $outdir/*.txt -l log --wrap=never
+
+    echo "Fetched logs can be found in dir '$outdir' for further searching and/or processing."
+}
+
+
+view_logs() {
+    [ -z "$AWS_LOGS_DIR" ] && AWS_LOGS_DIR="$1"
+    bat ${AWS_LOGS_DIR%/}/*.txt -l log --wrap=never
+}
+
+search_logs() {
+    regex="$1"
+    [ -z "$AWS_LOGS_DIR" ] && AWS_LOGS_DIR="$2"
+    grep -h "$regex" ${AWS_LOGS_DIR%/}/*.txt | sort | bat -l log --wrap=never
+}
+
+today_logs() {
+    [ -z "$AWS_LOGS_DIR" ] && AWS_LOGS_DIR="$1"
+    grep -h $(date -I) ${AWS_LOGS_DIR%/}/*.txt | sort | bat -l log --wrap=never
+}
+
+# Process command
+cmd=$1
+shift
+case $cmd in
+    fetch)  fetch_logs ;;
+    search) search_logs $@ ;;
+    view)   view_logs $@ ;;
+    today)  today_logs $@ ;;
+    *)
+        echo "Invalid command."
+        echo
+        echo "Commands include:"
+        echo "      awslogs fetch                         # Fetch logs from aws"
+        echo "      awslogs search 'regex' /logs/dir/     # Regex search the logs in /logs/dir/"
+        echo "      awslogs view /logs/dir/               # View the logs in /logs/dir/"
+        echo "      awslogs today /logs/dir/              # View all log entries in /logs/dir/ which occured today."
+        echo
+        echo "/logs/dir/ can be omitted from above subcommands if AWS_LOGS_DIR has been set to the relevant directory."
+        ;;
+esac
+
