@@ -20,7 +20,7 @@ done
 
 fetch_logs() {
     # Choose an aws profile to use
-    AWS_PROFILE=$(aws configure list-profiles | fzf)
+    export AWS_PROFILE=$(aws configure list-profiles | fzf)
 
     # Choose a log group
     log_group_name=$(aws logs describe-log-groups | sed -n 's/.*logGroupName": "\(.*\)"./\1/p' | fzf)
